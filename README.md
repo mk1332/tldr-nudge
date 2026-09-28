@@ -150,3 +150,7 @@ python3 tests/run_all.py
 30 cases over synthetic `Stop` payloads: every gate, the code and table exclusions,
 each mute format and its expiry, and malformed input. The hook exits 0 in all of
 them, because a non-zero exit from a `Stop` hook blocks the turn.
+
+## License
+
+MIT. See `LICENSE`.
