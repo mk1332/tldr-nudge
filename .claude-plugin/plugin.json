@@ -1,0 +1,14 @@
+{
+  "name": "tldr-nudge",
+  "version": "0.4.0",
+  "description": "When Claude finishes a long answer, a Stop hook makes it ask whether you want a TL;DR and reports the word count. Counts prose only, ignoring fenced code and table rows.",
+  "author": {
+    "name": "Mukund Kulkarni"
+  },
+  "keywords": [
+    "hooks",
+    "verbosity",
+    "tldr",
+    "stop-hook"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "mukund-plugins",
+  "description": "Claude Code plugins by Mukund Kulkarni",
+  "owner": { "name": "Mukund Kulkarni" },
+  "plugins": [
+    { "name": "tldr-nudge", "source": "./" }
+  ]
+}

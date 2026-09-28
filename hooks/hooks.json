@@ -1,0 +1,16 @@
+{
+  "description": "On Stop, flag an over-long answer and ask whether to compress it",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/verbosity_check.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
