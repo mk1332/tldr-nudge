@@ -20,7 +20,7 @@ Requires `python3` on your PATH (macOS, Linux, or Windows with Python installed)
 TL;DR is written by `claude -p`, so the `claude` CLI must be on PATH too.
 
 ```bash
-claude plugin marketplace add mukundkulkarni/tldr-nudge
+claude plugin marketplace add mk1332/tldr-nudge
 claude plugin install tldr-nudge@mukund-plugins
 ```
 
