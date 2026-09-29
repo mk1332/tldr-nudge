@@ -165,6 +165,22 @@ each mute format and its expiry, malformed input, and `--summarize` against a st
 mute files. The hook exits 0 in all of them: exit 2 from a `Stop` hook blocks the
 turn, and any other non-zero code is noisy for a hook that is working as designed.
 
+## What it runs and stores
+
+- **On every answer:** the Stop hook runs `hooks/verbosity_check.py` locally. It makes
+  no network calls.
+- **Saved answer:** it writes your last answer, in full, to
+  `~/.claude/tldr-nudge/last.md`, overwriting the previous one. This happens even
+  while muted, so `/tldr` still works. Delete the file, or set
+  `TLDR_NUDGE_QUIET`, to stop it. The file never leaves your machine except as
+  described next.
+- **On request only:** when you say yes or run `/tldr`, the script runs
+  `claude -p --model <TLDR_NUDGE_MODEL>` and sends it that saved answer. That call
+  goes through your own Claude Code login, like any other session, and uses no
+  other credentials. `TLDR_NUDGE_MODEL=inherit` skips it.
+- **Mute files:** `mute` and `mute-<session_id>` in the same directory.
+- Nothing else is read, and no settings or permissions are changed.
+
 ## License
 
 MIT. See `LICENSE`.
