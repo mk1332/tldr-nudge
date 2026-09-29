@@ -2,7 +2,7 @@
 name: tldr
 description: Compress the previous answer to its decisions and numbers, or mute the tldr-nudge verbosity prompt. Run as /tldr, /tldr 1, /tldr off, /tldr off forever, or /tldr on.
 argument-hint: "[1 | off | off forever | on]"
-allowed-tools: Bash(echo:*), Bash(python3:*)
+allowed-tools: Bash(echo 8h > ~/.claude/tldr-nudge/mute), Bash(echo forever > ~/.claude/tldr-nudge/mute), Bash(echo 0h > ~/.claude/tldr-nudge/mute), Bash(python3 "${CLAUDE_PLUGIN_ROOT}/hooks/verbosity_check.py" --summarize)
 disable-model-invocation: true
 ---
 
