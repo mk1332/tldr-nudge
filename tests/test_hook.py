@@ -11,8 +11,9 @@ TABLE = "Here are the results.\n\n" + "| col_a | col_b | col_c | col_d |\n" * 12
 CODE = "Here is the patch.\n\n```python\n" + "x = compute_value(a, b, c, d, e)\n" * 200 + "```\n"
 
 def run(payload, env=None):
-    e = dict(os.environ); e.pop("TLDR_NUDGE_WORDS", None); e.pop("TLDR_NUDGE_MODE", None)
-    e.pop("TLDR_NUDGE_QUIET", None); e.pop("TLDR_NUDGE_SKIP_BUSY", None); e.pop("TLDR_NUDGE_IN_AUTO", None); e["TLDR_NUDGE_STATE_DIR"] = STATE
+    # Minimal environment: only what Python needs, so no TLDR_NUDGE_* leaks in.
+    e = {k: os.environ[k] for k in ("PATH", "HOME", "SYSTEMROOT") if k in os.environ}
+    e["TLDR_NUDGE_STATE_DIR"] = STATE
     if env: e.update(env)
     p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload),
                        capture_output=True, text=True, env=e)
@@ -93,7 +94,8 @@ def summ(env_extra, stub):
     b = tempfile.mkdtemp(prefix="tldr-bin-")
     if stub is not None:
         f = os.path.join(b, "claude"); open(f, "w").write(stub); os.chmod(f, 0o755)
-    e = dict(os.environ, TLDR_NUDGE_STATE_DIR=STATE, PATH=b + os.pathsep + "/usr/bin:/bin", **env_extra)
+    e = {k: os.environ[k] for k in ("PATH", "HOME", "SYSTEMROOT") if k in os.environ}
+    e.update(TLDR_NUDGE_STATE_DIR=STATE, PATH=b + os.pathsep + "/usr/bin:/bin", **env_extra)
     return subprocess.run([sys.executable, HOOK, "--summarize"], capture_output=True, text=True, env=e).stdout.strip()
 OK = "#!/bin/sh\necho \"- $@ | quiet=$TLDR_NUDGE_QUIET\"\n"
 for label, out, want in [

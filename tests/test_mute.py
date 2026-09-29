@@ -6,7 +6,7 @@ D = tempfile.mkdtemp(prefix="tldr-nudge-test-")
 G, S = os.path.join(D, "mute"), os.path.join(D, "mute-sess1")
 
 def run():
-    e = {k: v for k, v in os.environ.items() if not k.startswith("TLDR_NUDGE")}
+    e = {k: os.environ[k] for k in ("PATH", "HOME", "SYSTEMROOT") if k in os.environ}
     e["TLDR_NUDGE_STATE_DIR"] = D
     p = subprocess.run([sys.executable, HOOK], env=e, capture_output=True, text=True,
         input=json.dumps({"session_id": "sess1", "hook_event_name": "Stop",
