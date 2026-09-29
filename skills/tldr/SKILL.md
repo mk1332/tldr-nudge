@@ -2,7 +2,7 @@
 name: tldr
 description: Compress the previous answer to its decisions and numbers, or mute the tldr-nudge verbosity prompt. Run as /tldr, /tldr 1, /tldr off, /tldr off forever, or /tldr on.
 argument-hint: "[1 | off | off forever | on]"
-allowed-tools: Bash(echo:*)
+allowed-tools: Bash(echo:*), Bash(python3:*)
 disable-model-invocation: true
 ---
 
@@ -26,7 +26,13 @@ Stop hook creates the directory, and `echo` alone is enough.
 
 ## Otherwise, compress my immediately preceding answer
 
-Do not re-derive it, do not research anything, and do not apologise for the length.
+Run `python3 "${CLAUDE_PLUGIN_ROOT}/hooks/verbosity_check.py" --summarize` and print
+its output verbatim, nothing added. A cheaper model writes it from the answer the
+Stop hook saved. If the argument is `1`, print only its first bullet, reduced to
+one line.
+
+If it prints `FALLBACK`, write the summary yourself. Do not re-derive the answer,
+do not research anything, and do not apologise for the length.
 
 - At most 3 bullets. If the argument is `1`, one line instead.
 - Keep only what changes what I do: the decision, the number that supports it, and

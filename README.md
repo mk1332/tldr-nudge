@@ -12,21 +12,15 @@ before the turn ends, and tells you how long the answer was.
 ```
 
 Pick yes and you get at most 3 bullets: the decision, the number behind it, any
-blocker. Pick no and the turn ends with nothing further.
+blocker, written by a cheaper model (Haiku by default, see below). Pick no and the turn ends with nothing further.
 
 ## Install
 
-Once this repo is pushed, replace `OWNER/REPO` with its path:
+Requires `python3` on your PATH (macOS, Linux, or Windows with Python installed). The
+TL;DR is written by `claude -p`, so the `claude` CLI must be on PATH too.
 
 ```bash
-claude plugin marketplace add OWNER/REPO
-claude plugin install tldr-nudge@mukund-plugins
-```
-
-Or from a local clone:
-
-```bash
-claude plugin marketplace add ./tldr-nudge
+claude plugin marketplace add mukundkulkarni/tldr-nudge
 claude plugin install tldr-nudge@mukund-plugins
 ```
 
@@ -52,7 +46,7 @@ signal for a hook doing its job. `additionalContext` is labelled
 `Stop hook feedback` instead.
 
 Claude Code prints that feedback to you, so the instruction is deliberately terse:
-73 words, one rule per branch. Version 0.3.0 sent 185 words and put a wall of
+About 80 words, one rule per branch. Version 0.3.0 sent 185 words and put a wall of
 instructions in front of every three-bullet summary. There is no way to hide it,
 since `suppressOutput` is a documented no-op, so the only lever is length. For the
 same reason ask mode sends no `systemMessage`: the instruction already opens with
@@ -61,6 +55,20 @@ the word count, and saying it twice is noise.
 If you would rather spend nothing, set `TLDR_NUDGE_MODE=flag`. You then get the
 count as a one-line notice and `/tldr` on demand, with no question and no extra
 turn.
+
+## Cheaper model writes the TL;DR
+
+The main model never writes the summary itself. The Stop hook saves the last answer
+to `~/.claude/tldr-nudge/last.md`. When you say yes, or run `/tldr`, the hook script
+is called with `--summarize`, which pipes that answer to `claude -p --model haiku`
+and prints the bullets. The main model only relays them.
+
+A summary is only produced on request. Nothing is generated unprompted, and in
+Claude Code's auto permission mode the hook stays silent entirely.
+
+Set `TLDR_NUDGE_MODEL` to any model alias or ID. `inherit` skips the cheap call and
+has the session model write it. If `claude` is missing or the call fails, the
+session model writes it too.
 
 ## What counts as long
 
@@ -83,6 +91,7 @@ it and ordinary replies stay silent.
 | Answer under the threshold | Nothing to compress |
 | `stop_hook_active` is true | The TL;DR ends a turn too, and would otherwise re-trigger the question |
 | A background task is in flight | Only when `TLDR_NUDGE_SKIP_BUSY` is set. Off by default, see below |
+| Claude Code is in auto permission mode | Nobody is there to answer. `TLDR_NUDGE_IN_AUTO` overrides |
 | A mute is set by `/tldr off` | You asked it to stop |
 | `TLDR_NUDGE_QUIET` is set | Disabled without uninstalling |
 
@@ -138,6 +147,9 @@ own and compress an answer the hook was about to ask you about.
 | `TLDR_NUDGE_MODE` | `ask` | `flag` prints the count only and spends no model turn |
 | `TLDR_NUDGE_QUIET` | unset | Set to anything to disable |
 | `TLDR_NUDGE_SKIP_BUSY` | unset | Stay quiet while a background task is in flight |
+| `TLDR_NUDGE_MODEL` | `haiku` | Model that writes the TL;DR. `inherit` uses the session model |
+| `TLDR_NUDGE_IN_AUTO` | unset | Nudge even in auto permission mode |
+| `TLDR_NUDGE_STATE_DIR` | `~/.claude/tldr-nudge` | Where the mute files and `last.md` live |
 
 Set these in the `env` block of `~/.claude/settings.json`.
 
@@ -147,9 +159,11 @@ Set these in the `env` block of `~/.claude/settings.json`.
 python3 tests/run_all.py
 ```
 
-30 cases over synthetic `Stop` payloads: every gate, the code and table exclusions,
-each mute format and its expiry, and malformed input. The hook exits 0 in all of
-them, because a non-zero exit from a `Stop` hook blocks the turn.
+44 cases over synthetic `Stop` payloads: every gate, the code and table exclusions,
+each mute format and its expiry, malformed input, and `--summarize` against a stub
+`claude`. They run against a temporary state directory and never touch your real
+mute files. The hook exits 0 in all of them: exit 2 from a `Stop` hook blocks the
+turn, and any other non-zero code is noisy for a hook that is working as designed.
 
 ## License
 

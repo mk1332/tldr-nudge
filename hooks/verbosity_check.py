@@ -17,6 +17,7 @@ Gates, all of which return silently:
   - background_tasks in flight, but only when TLDR_NUDGE_SKIP_BUSY is set
   - a mute set by /tldr off, which expires after 8 hours by default
   - TLDR_NUDGE_QUIET, to disable without uninstalling
+  - permission_mode "auto", unless TLDR_NUDGE_IN_AUTO is set
 
 Environment:
   TLDR_NUDGE_WORDS   prose-word threshold, default 350. 0 asks on every answer.
@@ -24,6 +25,14 @@ Environment:
                      "flag" only prints the one-line count and spends no model turn.
   TLDR_NUDGE_QUIET   set to anything to disable.
   TLDR_NUDGE_SKIP_BUSY  stay quiet while a background task is in flight.
+  TLDR_NUDGE_IN_AUTO    nudge even when Claude Code is in auto permission mode.
+  TLDR_NUDGE_MODEL      model that writes the TL;DR, default "haiku". "inherit"
+                        leaves it to the session model.
+  TLDR_NUDGE_STATE_DIR  state directory, default ~/.claude/tldr-nudge.
+
+A summary is only ever written on request: `verbosity_check.py --summarize`
+reads the last answer the hook saved and asks the cheaper model to compress it.
+The hook never generates one unprompted.
 
 Always exits 0. Exit 2 would block the turn with the message routed as a hook
 error, which is the wrong channel for a hook that is working as designed.
@@ -32,14 +41,23 @@ error, which is the wrong channel for a hook that is working as designed.
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
 DEFAULT_THRESHOLD = 350
-FENCE = re.compile(r"^\s*(```|~~~)")
-TABLE_ROW = re.compile(r"^\s*\|")
+FENCE = re.compile(r"^ {0,3}(```|~~~)")
+# A leading pipe, or two or more pipes (tables written without the outer ones).
+TABLE_ROW = re.compile(r"^\s*\||^[^|]*\|[^|]*\|")
 BULLET = re.compile(r"^([-*+]|\d+\.)\s+\S")
-STATE_DIR = os.path.expanduser("~/.claude/tldr-nudge")
+STATE_DIR = os.environ.get("TLDR_NUDGE_STATE_DIR") or os.path.expanduser("~/.claude/tldr-nudge")
+LAST = os.path.join(STATE_DIR, "last.md")
+DEFAULT_MODEL = "haiku"
+SUMMARY_PROMPT = (
+    "Compress the answer below to at most 3 bullets. Keep only what changes what "
+    "the reader does: the decision, the number behind it, any blocker. Lead with "
+    "the plain answer. Output only the bullets.\n\n"
+)
 
 
 DURATION = re.compile(r"^([0-9]*\.?[0-9]+)\s*([mhd])?$", re.I)
@@ -143,14 +161,49 @@ def ask_instruction(m, threshold):
         f'{m["words"]} prose words, past the {threshold} threshold. '
         'Call AskUserQuestion now: header "TL;DR", question "That answer ran to '
         f'{m["words"]} words. Want the short version?", options "Yes, TL;DR" and '
-        '"No, it reads fine". On yes, at most 3 bullets: the decision and the '
-        'number behind it, nothing restated. On no, end the turn silently. Do not '
-        "apologise or explain this. If they have said to stop asking, skip it and "
-        "say `/tldr off` mutes it."
+        '"No, it reads fine". On yes, run `python3 "' + os.path.abspath(__file__) + '" '
+        '--summarize` and print its output verbatim; if it prints FALLBACK, give at '
+        'most 3 bullets yourself. On no, end the turn silently. Do not apologise or '
+        "explain this. If they have said to stop asking, skip it and say `/tldr off` "
+        "mutes it."
     )
 
 
+def summarize():
+    """Print a TL;DR of the saved last answer, written by the cheaper model.
+
+    Prints FALLBACK when the model is "inherit" or the call fails, so the caller
+    knows to summarize inline instead. TLDR_NUDGE_QUIET keeps the child's own
+    Stop hook from firing this plugin again.
+    """
+    model = os.environ.get("TLDR_NUDGE_MODEL", DEFAULT_MODEL).strip()
+    try:
+        with open(LAST, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        print("Nothing saved yet: no answer has been recorded.")
+        return 0
+    if not text.strip():
+        print("Nothing saved yet: no answer has been recorded.")
+        return 0
+    if not model or model == "inherit":
+        print("FALLBACK")
+        return 0
+    try:
+        p = subprocess.run(
+            ["claude", "-p", "--model", model, "--tools", "", "--no-session-persistence"],
+            input=SUMMARY_PROMPT + text, capture_output=True, text=True, timeout=60,
+            env={**os.environ, "TLDR_NUDGE_QUIET": "1"})
+        out = p.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out, p = "", None
+    print(out if out and p.returncode == 0 else "FALLBACK")
+    return 0
+
+
 def main():
+    if "--summarize" in sys.argv[1:]:
+        return summarize()
     if os.environ.get("TLDR_NUDGE_QUIET"):
         return 0
     # Created here so /tldr off only ever needs echo, never mkdir, and so the
@@ -171,6 +224,25 @@ def main():
     if payload.get("stop_hook_active"):
         return 0
 
+    text = payload.get("last_assistant_message")
+    text = text if isinstance(text, str) else ""
+    session_id = payload.get("session_id")
+    session_id = session_id if isinstance(session_id, str) else None
+
+    # Saved for --summarize, before any mute gate so /tldr works while muted. A
+    # last-writer-wins global file: with two sessions, /tldr sees whichever
+    # answered last. ponytail: per-session files if that ever bites.
+    if text.strip():
+        try:
+            with open(LAST, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        except OSError:
+            pass
+
+    # Auto permission mode means nobody is at the keyboard to answer a question.
+    if payload.get("permission_mode") == "auto" and not os.environ.get("TLDR_NUDGE_IN_AUTO"):
+        return 0
+
     # Background work in flight is NOT a reason to stay quiet by default. The
     # first version gated on it, on the theory that the turn was paused rather
     # than finished. Real use disproved that: the common case is a long answer
@@ -181,10 +253,9 @@ def main():
     if os.environ.get("TLDR_NUDGE_SKIP_BUSY") and payload.get("background_tasks"):
         return 0
 
-    if is_muted(payload.get("session_id")):
+    if is_muted(session_id):
         return 0
 
-    text = payload.get("last_assistant_message") or ""
     if not text.strip():
         return 0
 

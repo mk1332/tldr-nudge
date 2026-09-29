@@ -1,12 +1,13 @@
-import json, os, subprocess, sys, time
+import json, os, subprocess, sys, tempfile, time
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     os.pardir, "hooks", "verbosity_check.py")
 LONG = ("The migration repoints reporting onto the successor table and the counts reconcile. " * 60)
-D = os.path.expanduser("~/.claude/tldr-nudge"); os.makedirs(D, exist_ok=True)
+D = tempfile.mkdtemp(prefix="tldr-nudge-test-")
 G, S = os.path.join(D, "mute"), os.path.join(D, "mute-sess1")
 
 def run():
     e = {k: v for k, v in os.environ.items() if not k.startswith("TLDR_NUDGE")}
+    e["TLDR_NUDGE_STATE_DIR"] = D
     p = subprocess.run([sys.executable, HOOK], env=e, capture_output=True, text=True,
         input=json.dumps({"session_id": "sess1", "hook_event_name": "Stop",
                           "stop_hook_active": False, "last_assistant_message": LONG}))

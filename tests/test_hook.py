@@ -1,4 +1,6 @@
-import json, os, subprocess, sys
+import json, os, subprocess, sys, tempfile
+
+STATE = tempfile.mkdtemp(prefix="tldr-nudge-test-")
 
 HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     os.pardir, "hooks", "verbosity_check.py")
@@ -10,7 +12,7 @@ CODE = "Here is the patch.\n\n```python\n" + "x = compute_value(a, b, c, d, e)\n
 
 def run(payload, env=None):
     e = dict(os.environ); e.pop("TLDR_NUDGE_WORDS", None); e.pop("TLDR_NUDGE_MODE", None)
-    e.pop("TLDR_NUDGE_QUIET", None); e.pop("TLDR_NUDGE_SKIP_BUSY", None)
+    e.pop("TLDR_NUDGE_QUIET", None); e.pop("TLDR_NUDGE_SKIP_BUSY", None); e.pop("TLDR_NUDGE_IN_AUTO", None); e["TLDR_NUDGE_STATE_DIR"] = STATE
     if env: e.update(env)
     p = subprocess.run([sys.executable, HOOK], input=json.dumps(payload),
                        capture_output=True, text=True, env=e)
@@ -35,6 +37,13 @@ case("120 table rows -> silent",       "silent", base(last_assistant_message=TAB
 case("200 lines code -> silent",       "silent", base(last_assistant_message=CODE))
 case("empty answer -> silent",         "silent", base(last_assistant_message=""))
 case("missing answer field -> silent", "silent", {"session_id":"s","hook_event_name":"Stop"})
+case("auto permission mode -> silent", "silent", base(permission_mode="auto"))
+case("auto mode + IN_AUTO -> asks",    "ask",    base(permission_mode="auto"), {"TLDR_NUDGE_IN_AUTO":"1"})
+case("plan mode -> still asks",        "ask",    base(permission_mode="plan"))
+case("numeric session_id -> asks",     "ask",    base(session_id=123))
+case("list answer -> silent",          "silent", base(last_assistant_message=["x"]))
+case("headerless table -> silent",     "silent", base(last_assistant_message="Results.\n\n" + "a | b | c | d\n" * 120))
+case("indented backticks not a fence", "ask",    base(last_assistant_message="Intro.\n\n    ```\n" + LONG))
 case("mode=flag -> flag only",         "flag",   base(), {"TLDR_NUDGE_MODE":"flag"})
 case("WORDS=0 -> asks on short",       "ask",    base(last_assistant_message=SHORT), {"TLDR_NUDGE_WORDS":"0"})
 case("QUIET -> silent",                "silent", base(), {"TLDR_NUDGE_QUIET":"1"})
@@ -67,8 +76,7 @@ print(f"{'PASS' if p.returncode==0 and not p.stdout.strip() else 'FAIL'}  malfor
 if p.returncode != 0 or p.stdout.strip(): fails.append("malformed stdin")
 
 # mute file
-d = os.path.expanduser("~/.claude/tldr-nudge"); os.makedirs(d, exist_ok=True)
-mp = os.path.join(d, "mute-test-session")
+mp = os.path.join(STATE, "mute-test-session")
 open(mp, "w").close()
 rc, out, err = run(base())
 print(f"{'PASS' if out=='' else 'FAIL'}  mute file -> silent")
@@ -78,5 +86,31 @@ rc, out, err = run(base())
 print(f"{'PASS' if out else 'FAIL'}  mute removed -> asks again")
 if not out: fails.append("mute removal not honored")
 
+# --summarize with a stub claude on PATH
+last = os.path.join(STATE, "last.md")
+open(last, "w").write("some long answer")
+def summ(env_extra, stub):
+    b = tempfile.mkdtemp(prefix="tldr-bin-")
+    if stub is not None:
+        f = os.path.join(b, "claude"); open(f, "w").write(stub); os.chmod(f, 0o755)
+    e = dict(os.environ, TLDR_NUDGE_STATE_DIR=STATE, PATH=b + os.pathsep + "/usr/bin:/bin", **env_extra)
+    return subprocess.run([sys.executable, HOOK, "--summarize"], capture_output=True, text=True, env=e).stdout.strip()
+OK = "#!/bin/sh\necho \"- $@ | quiet=$TLDR_NUDGE_QUIET\"\n"
+for label, out, want in [
+    ("summarize -> cheap model, child muted", summ({}, OK), "- -p --model haiku"),
+    ("summarize honors TLDR_NUDGE_MODEL",    summ({"TLDR_NUDGE_MODEL": "sonnet"}, OK), "--model sonnet"),
+    ("summarize inherit -> FALLBACK",        summ({"TLDR_NUDGE_MODEL": "inherit"}, OK), "FALLBACK"),
+    ("summarize no claude -> FALLBACK",      summ({}, None), "FALLBACK"),
+    ("summarize failing claude -> FALLBACK", summ({}, "#!/bin/sh\nexit 1\n"), "FALLBACK"),
+]:
+    ok = want in out and ("quiet=1" in out if "cheap" in label else True)
+    print(f"{'PASS' if ok else 'FAIL'}  {label}")
+    if not ok: fails.append(f"{label}: {out!r}")
+os.remove(last)
+ok = "Nothing saved" in summ({}, OK)
+print(f"{'PASS' if ok else 'FAIL'}  summarize with no saved answer")
+if not ok: fails.append("no saved answer")
+
+N = len(CASES) + 9
 print()
-print(f"{len(CASES)+3-len(fails)}/{len(CASES)+3} passed" if not fails else f"FAILURES:\n" + "\n".join(fails))
+print(f"{N-len(fails)}/{N} passed" if not fails else f"FAILURES:\n" + "\n".join(fails))
